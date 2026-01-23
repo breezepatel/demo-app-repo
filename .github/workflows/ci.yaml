@@ -1,0 +1,47 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build + Sign + Scan + Push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/build-sign-scan-push.yaml
+    with:
+      image_name: demo-app
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+
+  update-dev:
+    name: Update DEV manifest
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout GitOps repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/demo-gitops-repo
+          token: ${{ secrets.GITOPS_PAT }}
+          path: gitops
+
+      - name: Update DEV image tag
+        run: |
+          cd gitops/environments/dev
+          IMAGE_TAG=$(echo "${{ needs.build.outputs.image_tag }}" | grep 'main-' | head -1)
+          sed -i "s|image: ghcr.io/.*/demo-app:.*|image: ${IMAGE_TAG}|g" rollout.yaml
+          
+      - name: Commit and push
+        run: |
+          cd gitops
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "chore(dev): update image to ${{ github.sha }}" || exit 0
+          git push

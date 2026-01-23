@@ -1,0 +1,34 @@
+name: Promote to STG
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  update-stg:
+    name: Update STG manifest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout GitOps repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/demo-gitops-repo
+          token: ${{ secrets.GITOPS_PAT }}
+          path: gitops
+
+      - name: Update STG image tag
+        run: |
+          cd gitops/environments/stg
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          IMAGE="ghcr.io/${{ github.repository }}/demo-app:${TAG_NAME}"
+          sed -i "s|image: ghcr.io/.*/demo-app:.*|image: ${IMAGE}|g" rollout.yaml
+          
+      - name: Commit and push
+        run: |
+          cd gitops
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "chore(stg): promote to ${GITHUB_REF#refs/tags/}"
+          git push
