@@ -19,14 +19,14 @@ jobs:
 
       - name: Update STG image tag
         run: |
-          cd demo-gitops-repo/environments/stg
+          cd gitops/environments/stg
           TAG_NAME=${GITHUB_REF#refs/tags/}
           IMAGE="ghcr.io/${{ github.repository }}/demo-app:${TAG_NAME}"
           sed -i "s|image: ghcr.io/.*/demo-app:.*|image: ${IMAGE}|g" rollout.yaml
           
       - name: Commit and push
         run: |
-          cd demo-gitops-repo
+          cd gitops
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
