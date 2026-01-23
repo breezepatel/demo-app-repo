@@ -11,4 +11,4 @@ helm install kargo oci://ghcr.io/akuity/kargo-charts/kargo --namespace kargo --c
 
 Port 9089: ArgoCD UI (GitOps engine)
 Port 3100: Argo Rollouts Dashboard (deployment strategies)
-Port 9091: Kargo API (promotion management)
+Port 9091: Kargo API (promotion management)# Testing DEV deployment
