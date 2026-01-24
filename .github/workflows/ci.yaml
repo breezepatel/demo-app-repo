@@ -34,7 +34,16 @@ jobs:
       - name: Update DEV image tag
         run: |
           cd gitops/environments/dev
-          IMAGE_TAG=$(echo "${{ needs.build.outputs.image_tag }}" | grep 'main-' | head -1)
+          # Extract the SHA tag (format: ghcr.io/user/repo/app:abc1234)
+          IMAGE_TAG=$(echo "${{ needs.build.outputs.image_tag }}" | tr ',' '\n' | grep -E '^ghcr.io.*:[a-f0-9]{7}$' | head -1)
+          
+          if [ -z "$IMAGE_TAG" ]; then
+            echo "Error: Could not find SHA-based tag"
+            echo "Available tags: ${{ needs.build.outputs.image_tag }}"
+            exit 1
+          fi
+          
+          echo "Using image: $IMAGE_TAG"
           sed -i "s|image: ghcr.io/.*/demo-app:.*|image: ${IMAGE_TAG}|g" rollout.yaml
           
       - name: Commit and push
@@ -43,5 +52,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "chore(dev): update image to ${{ github.sha }}" || exit 0
+          git diff --staged --quiet || git commit -m "chore(dev): update image to ${{ github.sha }}"
           git push

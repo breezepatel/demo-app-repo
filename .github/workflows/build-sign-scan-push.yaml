@@ -48,8 +48,11 @@ jobs:
           images: ghcr.io/${{ github.repository }}/${{ inputs.image_name }}
           tags: |
             type=ref,event=branch
+            type=ref,event=pr
             type=semver,pattern={{version}}
-            type=sha,prefix={{branch}}-
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,format=short,prefix=
 
       - name: Build and push image
         id: build

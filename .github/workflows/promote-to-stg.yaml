@@ -33,7 +33,11 @@ jobs:
         run: |
           cd gitops/environments/stg
           TAG_NAME=${GITHUB_REF#refs/tags/}
+          
+          # Use the semver tag (e.g., v1.0.0)
           IMAGE="ghcr.io/${{ github.repository }}/demo-app:${TAG_NAME}"
+          
+          echo "Updating STG to: $IMAGE"
           sed -i "s|image: ghcr.io/.*/demo-app:.*|image: ${IMAGE}|g" rollout.yaml
           
       - name: Commit and push
@@ -42,5 +46,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "chore(stg): promote to ${GITHUB_REF#refs/tags/}"
+          git diff --staged --quiet || git commit -m "chore(stg): promote to ${GITHUB_REF#refs/tags/}"
           git push
