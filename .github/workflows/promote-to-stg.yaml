@@ -32,13 +32,19 @@ jobs:
       - name: Update STG image tag
         run: |
           cd gitops/environments/stg
+          
+          # Extract tag name (e.g., v1.0.0)
           TAG_NAME=${GITHUB_REF#refs/tags/}
           
-          # Use the semver tag (e.g., v1.0.0)
+          # Build full image path WITH v prefix
           IMAGE="ghcr.io/${{ github.repository }}/demo-app:${TAG_NAME}"
           
           echo "Updating STG to: $IMAGE"
           sed -i "s|image: ghcr.io/.*/demo-app:.*|image: ${IMAGE}|g" rollout.yaml
+          
+          # Verify the change
+          echo "Updated rollout.yaml:"
+          grep "image:" rollout.yaml
           
       - name: Commit and push
         run: |
