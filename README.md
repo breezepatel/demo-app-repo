@@ -36,3 +36,11 @@ Port 9091: Kargo API (promotion management)# Testing DEV deployment
 sTv5qMKwBmkN8gwO
 
 kubectl argo rollouts get rollout demo-app -n demo-dev --watch
+
+# Start port forward
+kubectl port-forward svc/argocd-server -n argocd 8080:443 > /dev/null 2>&1 &
+
+kubectl port-forward svc/argo-rollouts-dashboard -n argo-rollouts 3100:3100 > /dev/null 2>&1 &
+
+
+kubectl port-forward svc/kargo-api -n kargo 8081:80 > /dev/null 2>&1 &

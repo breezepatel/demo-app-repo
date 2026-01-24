@@ -6,8 +6,20 @@ on:
       - 'v*.*.*'
 
 jobs:
+  build-and-tag:
+    name: Build and Tag Release
+    uses: ./.github/workflows/build-sign-scan-push.yaml
+    with:
+      image_name: demo-app
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      security-events: write
+
   update-stg:
     name: Update STG manifest
+    needs: [build-and-tag]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout GitOps repo
