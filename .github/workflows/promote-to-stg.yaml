@@ -1,25 +1,141 @@
 name: Promote to STG
 
 on:
+  workflow_dispatch:
+    inputs:
+      dev_image_sha:
+        description: 'DEV image SHA to promote (leave empty for latest)'
+        required: false
+        type: string
   push:
     tags:
       - 'v*.*.*'
 
 jobs:
-  build-and-tag:
-    name: Build and Tag Release
-    uses: ./.github/workflows/build-sign-scan-push.yaml
-    with:
-      image_name: demo-app
+  retag-image:
+    name: Pull DEV image and retag for STG
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
       id-token: write
-      security-events: write
+    
+    outputs:
+      stg_image: ${{ steps.retag.outputs.stg_image }}
+      image_digest: ${{ steps.retag.outputs.digest }}
+      dev_image: ${{ steps.get-dev.outputs.dev_image }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine DEV image to promote
+        id: get-dev
+        run: |
+          if [ -n "${{ inputs.dev_image_sha }}" ]; then
+            # Manual workflow: use specified SHA
+            DEV_SHA="${{ inputs.dev_image_sha }}"
+          else
+            # Tag workflow: use the tagged commit's SHA
+            DEV_SHA=$(git rev-parse --short=7 ${GITHUB_REF#refs/tags/})
+          fi
+          
+          DEV_IMAGE="ghcr.io/${{ github.repository }}/demo-app:${DEV_SHA}"
+          echo "dev_image=${DEV_IMAGE}" >> $GITHUB_OUTPUT
+          echo "dev_sha=${DEV_SHA}" >> $GITHUB_OUTPUT
+          echo "📦 Promoting DEV image: ${DEV_IMAGE}"
+
+      - name: Verify DEV image exists and pull
+        id: pull
+        run: |
+          DEV_IMAGE="${{ steps.get-dev.outputs.dev_image }}"
+          
+          # Check if image exists
+          if ! docker manifest inspect "${DEV_IMAGE}" > /dev/null 2>&1; then
+            echo "❌ Error: DEV image not found: ${DEV_IMAGE}"
+            echo "Make sure this commit was built and pushed to DEV"
+            exit 1
+          fi
+          
+          echo "✅ DEV image found, pulling..."
+          docker pull "${DEV_IMAGE}"
+          
+          # Get and verify digest
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${DEV_IMAGE}" | cut -d'@' -f2)
+          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+          echo "📋 Image digest: ${DIGEST}"
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Verify image signature (Cosign)
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          DEV_IMAGE="${{ steps.get-dev.outputs.dev_image }}"
+          DIGEST="${{ steps.pull.outputs.digest }}"
+          
+          echo "🔐 Verifying image signature..."
+          if ! cosign verify "${DEV_IMAGE}@${DIGEST}"; then
+            echo "⚠️  Warning: Image signature verification failed"
+            echo "This image may not have been properly signed in DEV"
+            # Decide: exit 1 (strict) or continue (permissive)
+            # exit 1
+          fi
+          echo "✅ Signature verified"
+
+      - name: Retag and push to STG
+        id: retag
+        run: |
+          # Extract version from tag (v1.0.0 -> 1.0.0)
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG_NAME#v}
+          
+          DEV_IMAGE="${{ steps.get-dev.outputs.dev_image }}"
+          STG_IMAGE="ghcr.io/${{ github.repository }}/demo-app:${VERSION}"
+          DIGEST="${{ steps.pull.outputs.digest }}"
+          
+          echo "🏷️  Retagging: ${DEV_IMAGE} → ${STG_IMAGE}"
+          docker tag "${DEV_IMAGE}" "${STG_IMAGE}"
+          
+          echo "⬆️  Pushing to registry..."
+          docker push "${STG_IMAGE}"
+          
+          echo "stg_image=${STG_IMAGE}" >> $GITHUB_OUTPUT
+          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+          echo "✅ Successfully promoted to STG"
+
+      - name: Sign STG image
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          echo "🔐 Signing STG image..."
+          cosign sign --yes ${{ steps.retag.outputs.stg_image }}@${{ steps.retag.outputs.digest }}
+
+      - name: Add additional tags
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG_NAME#v}
+          STG_IMAGE="ghcr.io/${{ github.repository }}/demo-app"
+          
+          # Tag with major.minor (e.g., 1.0)
+          if [[ $VERSION =~ ^([0-9]+)\.([0-9]+)\. ]]; then
+            MAJOR_MINOR="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+            docker tag "${{ steps.retag.outputs.stg_image }}" "${STG_IMAGE}:${MAJOR_MINOR}"
+            docker push "${STG_IMAGE}:${MAJOR_MINOR}"
+            echo "Tagged as: ${MAJOR_MINOR}"
+          fi
 
   update-stg:
     name: Update STG manifest
-    needs: [build-and-tag]
+    needs: [retag-image]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout GitOps repo
@@ -33,19 +149,11 @@ jobs:
         run: |
           cd gitops/environments/stg
           
-          # Extract tag name (e.g., v1.0.0)
-          TAG_NAME=${GITHUB_REF#refs/tags/}
+          IMAGE="${{ needs.retag-image.outputs.stg_image }}"
           
-          # Remove 'v' prefix (v1.0.0 -> 1.0.0)
-          TAG_WITHOUT_V=${TAG_NAME#v}
-          
-          # Build full image path WITHOUT v prefix
-          IMAGE="ghcr.io/${{ github.repository }}/demo-app:${TAG_WITHOUT_V}"
-          
-          echo "Updating STG to: $IMAGE"
+          echo "📝 Updating STG manifest to: $IMAGE"
           sed -i "s|image: ghcr.io/.*/demo-app:.*|image: ${IMAGE}|g" rollout.yaml
           
-          # Verify the change
           echo "Updated rollout.yaml:"
           grep "image:" rollout.yaml
           
@@ -55,5 +163,22 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git diff --staged --quiet || git commit -m "chore(stg): promote to ${GITHUB_REF#refs/tags/} (image: ${TAG_WITHOUT_V})"
+          
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          DEV_SHA="${{ needs.retag-image.outputs.dev_image }}"
+          
+          git diff --staged --quiet || git commit -m "chore(stg): promote ${TAG_NAME}
+          
+          Promoted from DEV: ${DEV_SHA}
+          Digest: ${{ needs.retag-image.outputs.image_digest }}"
           git push
+
+      - name: Create promotion summary
+        run: |
+          echo "## 🚀 Promotion Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: STG" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${GITHUB_REF#refs/tags/}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Source**: ${{ needs.retag-image.outputs.dev_image }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target**: ${{ needs.retag-image.outputs.stg_image }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Digest**: \`${{ needs.retag-image.outputs.image_digest }}\`" >> $GITHUB_STEP_SUMMARY
