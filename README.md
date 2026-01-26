@@ -43,4 +43,4 @@ kubectl port-forward svc/argo-rollouts-dashboard -n argo-rollouts 3100:3100 > /d
 kubectl port-forward svc/kargo-api -n kargo 8081:80 > /dev/null 2>&1 &
 <!-- kubectl port-forward svc/kargo-ui -n kargo 8082:80 > /dev/null 2>&1 & -->
 
-test trigger dev.
+test trigger dev...
