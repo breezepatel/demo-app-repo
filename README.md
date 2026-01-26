@@ -42,3 +42,5 @@ kubectl port-forward svc/argocd-server -n argocd 8080:443 > /dev/null 2>&1 &
 kubectl port-forward svc/argo-rollouts-dashboard -n argo-rollouts 3100:3100 > /dev/null 2>&1 &
 kubectl port-forward svc/kargo-api -n kargo 8081:80 > /dev/null 2>&1 &
 <!-- kubectl port-forward svc/kargo-ui -n kargo 8082:80 > /dev/null 2>&1 & -->
+
+test trigger
