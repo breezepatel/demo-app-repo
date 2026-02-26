@@ -24,4 +24,4 @@ graph LR
     S --> T[ArgoCD Sync PRD]
 ```
 
-test trigger dev!!!
+test trigger dev
