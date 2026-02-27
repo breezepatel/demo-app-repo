@@ -23,5 +23,3 @@ graph LR
     R --> S[Kargo Updates PRD Manifest]
     S --> T[ArgoCD Sync PRD]
 ```
-
-test trigger dev!!!
